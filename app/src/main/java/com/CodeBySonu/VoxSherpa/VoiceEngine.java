@@ -58,11 +58,26 @@ public class VoiceEngine {
     }
 
     // ── Smart thread count ───────────────────────────────────────────────────
+    //
+    // 2026-05-09 (jphein fork) — bumped the 4/6/8-core caps so sherpa-onnx
+    // utilizes ALL available cores during inference. The previous table
+    // capped 4-core devices (Helio P22T / Tab A7 Lite) at 2 threads, leaving
+    // half the silicon idle and forcing the producer to run at ~0.285×
+    // realtime — the upstream cause of audible inter-chunk gaps in storyvox
+    // playback (storyvox issue #79).
+    //
+    // Memory cost is negligible (per-thread stacks + ONNX execution-plan
+    // parallelism, not duplicated weights). The consumer thread is blocked
+    // in AudioTrack.write() syscalls during synthesis, so it doesn't
+    // compete for CPU with sherpa-onnx; the UI thread is idle during
+    // playback. No need to reserve a core for either. Worst case (UI jank
+    // during synth), back off to a smaller cap.
     private int getOptimalThreadCount() {
         int cores = Runtime.getRuntime().availableProcessors();
-        if (cores >= 8) return 4;
-        if (cores >= 6) return 3;
-        if (cores >= 4) return 2;
+        if (cores >= 8) return 8;
+        if (cores >= 6) return 6;
+        if (cores >= 4) return 4;
+        if (cores >= 2) return 2;
         return 1;
     }
 

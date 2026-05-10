@@ -61,11 +61,17 @@ public class KokoroEngine {
     }
 
     // ── Smart thread count ───────────────────────────────────────────────────
+    //
+    // 2026-05-09 (jphein fork) — bumped the 4/6/8-core caps so sherpa-onnx
+    // utilizes ALL available cores during Kokoro inference. See VoiceEngine
+    // for the full rationale; mirrored here so both engines respect the
+    // same multi-core policy regardless of which voice is loaded.
     private int getOptimalThreadCount() {
         int cores = Runtime.getRuntime().availableProcessors();
-        if (cores >= 8) return 4;
-        if (cores >= 6) return 3;
-        if (cores >= 4) return 2;
+        if (cores >= 8) return 8;
+        if (cores >= 6) return 6;
+        if (cores >= 4) return 4;
+        if (cores >= 2) return 2;
         return 1;
     }
 
