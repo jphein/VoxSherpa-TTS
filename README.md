@@ -1,4 +1,4 @@
-<div align="center">
+    <div align="center">
 
 <img src="https://raw.githubusercontent.com/CodeBySonu95/VoxSherpa-TTS/main/fastlane/metadata/android/en-US/images/featureGraphic.png" width="100%" alt="VoxSherpa TTS Banner"/>
 

@@ -24,6 +24,9 @@ public class KokoroEngine {
     private static volatile KokoroEngine instance;
     private OfflineTts tts;
     private String activeModelUri = "";
+    // Tracks language context AND tokens/voices-bin paths + Context so
+    // [setSilenceScale] (storyvox PR) can rebuild OfflineTts mid-session
+    // against the same model files. Upstream keeps just activeLangCode.
     private String activeTokensUri = "";
     private String activeVoicesBinUri = "";
     private Context activeContext = null;
@@ -67,7 +70,9 @@ public class KokoroEngine {
     public static KokoroEngine getInstance() {
         if (instance == null) {
             synchronized (KokoroEngine.class) {
-                if (instance == null) instance = new KokoroEngine();
+                if (instance == null) {
+                    instance = new KokoroEngine();
+                }
             }
         }
         return instance;
@@ -141,14 +146,12 @@ public class KokoroEngine {
     }
 
     // ── Provider fallback: XNNPACK → CPU ────────────────────────────────────
-    private OfflineTts createTtsWithFallback(String onnxPath,
-                                              String tokensPath,
-                                              String voicesBinPath) {
+    private OfflineTts createTtsWithFallback(String onnxPath, String tokensPath, String voicesBinPath) {
         String[] providers = {"xnnpack", "cpu"};
 
         for (String provider : providers) {
             try {
-                // Cancel check — model load ke dauran bhi
+                // Cancel check before initialization
                 if (cancelRequested) return null;
 
                 KokoroVoiceHelper.VoiceItem currentVoice = KokoroVoiceHelper.getById(activeSpeakerId);
@@ -169,11 +172,17 @@ public class KokoroEngine {
 
                 OfflineTtsConfig config = new OfflineTtsConfig();
                 config.setModel(modelConfig);
+                // jphein fork: keep maxNumSentences=3 (storyvox batches
+                // sentences with internal periods like "Mr. Smith ran.";
+                // upstream chose =1 for System TTS responsiveness which
+                // doesn't apply here). silenceScale uses the field
+                // exposed by the storyvox setter PR.
                 config.setMaxNumSentences(3);
                 config.setSilenceScale(silenceScale);
 
                 OfflineTts candidate = new OfflineTts(null, config);
 
+                // As confirmed by the user, Kokoro supports punctuations perfectly.
                 GeneratedAudio test = candidate.generate("...", activeSpeakerId, 1.0f);
                 if (test != null && test.getSamples() != null && test.getSamples().length > 0) {
                     return candidate;
@@ -209,6 +218,7 @@ public class KokoroEngine {
         KokoroVoiceHelper.VoiceItem currentVoice = KokoroVoiceHelper.getById(activeSpeakerId);
         String targetLangCode = (currentVoice != null) ? currentVoice.languageCode : "en";
 
+        // Avoid reloading if the exact same model and language code are already active
         if (tts != null && activeModelUri.equals(onnxPath) && activeLangCode.equals(targetLangCode)) {
             return "Success";
         }
@@ -253,14 +263,14 @@ public class KokoroEngine {
 
     // ── Generate audio PCM ───────────────────────────────────────────────────
     public byte[] generateAudioPCM(String inputText, float speedValue, float pitchValue) {
-        // 🚀 Cancel check — lock se pehle, instant return
+        // Immediate cancel check
         if (cancelRequested) return null;
         if (inputText == null || inputText.trim().isEmpty()) return null;
 
         OfflineTts localTts;
         synchronized (this) {
             if (tts == null) return null;
-            localTts = tts;
+            localTts = tts; 
         }
 
         try {
@@ -269,12 +279,12 @@ public class KokoroEngine {
             GeneratedAudio audio = localTts.generate(inputText.trim(), activeSpeakerId, speedValue);
 
             if (cancelRequested) return null;
-
             if (audio == null) return null;
 
             float[] audioFloats = audio.getSamples();
             if (audioFloats == null || audioFloats.length == 0) return null;
 
+            // Float to Short conversion with anti-clipping bounds
             short[] shortSamples = new short[audioFloats.length];
             for (int i = 0; i < audioFloats.length; i++) {
                 float f = audioFloats[i];
@@ -282,6 +292,8 @@ public class KokoroEngine {
                 if (f < -1.0f) f = -1.0f;
                 shortSamples[i] = (short) (f * 32767.0f);
             }
+
+            // Sonic pitch shifting
             if (pitchValue != 1.0f) {
                 if (cancelRequested) return null;
                 int sampleRate = localTts.sampleRate();
@@ -298,13 +310,14 @@ public class KokoroEngine {
                             shortSamples = outSamples;
                         }
                     } catch (Throwable ignored) {
+                        // Fallback to original samples if Sonic fails
                     }
                 }
             }
 
-            // Step 3: Short → Byte (Little Endian)
             if (cancelRequested) return null;
 
+            // Short to PCM byte array (Little Endian format required by AudioTrack)
             byte[] pcmData = new byte[shortSamples.length * 2];
             for (int i = 0; i < shortSamples.length; i++) {
                 pcmData[i * 2]     = (byte) (shortSamples[i] & 0xff);
