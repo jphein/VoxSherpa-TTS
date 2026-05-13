@@ -300,6 +300,10 @@ public class KokoroEngine {
                 if (sampleRate > 0) {
                     try {
                         com.CodeBySonu.VoxSherpa.Sonic sonic = new com.CodeBySonu.VoxSherpa.Sonic(sampleRate, 1);
+                        // storyvox #193 — quality=1 for higher-quality pitch
+                        // interpolation. See VoiceEngine.java for the
+                        // rationale; both engines paired for consistency.
+                        sonic.setQuality(1);
                         sonic.setPitch(pitchValue);
                         sonic.writeShortToStream(shortSamples, shortSamples.length);
                         sonic.flushStream();

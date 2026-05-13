@@ -280,6 +280,13 @@ public class VoiceEngine {
                 if (cancelRequested) return null;
                 int sampleRate = localTts.sampleRate();
                 com.CodeBySonu.VoxSherpa.Sonic sonic = new com.CodeBySonu.VoxSherpa.Sonic(sampleRate, 1);
+                // storyvox #193 — flip to quality=1 for higher-quality pitch
+                // interpolation. Sonic's default 0 is faster but virtually
+                // equivalent only at neutral pitch; pitch-shifted output
+                // benefits noticeably at quality=1. Storyvox pre-renders
+                // PCM (post-#97 cache) so the CPU hit is paid once per
+                // chapter, not per playback — favorable trade.
+                sonic.setQuality(1);
                 sonic.setPitch(pitchValue);
                 sonic.writeShortToStream(shortSamples, shortSamples.length);
                 sonic.flushStream();
